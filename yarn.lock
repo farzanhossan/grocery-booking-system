@@ -397,7 +397,7 @@
     jsonc-parser "3.3.1"
     pluralize "8.0.0"
 
-"@nestjs/swagger@^11.2.6":
+"@nestjs/swagger@^11.2.7":
   version "11.2.7"
   resolved "https://registry.yarnpkg.com/@nestjs/swagger/-/swagger-11.2.7.tgz#bf80545241fc97921f4be71d109784a2fa8c10ac"
   integrity sha512-+e1KWSyZMAQeyZ8nbQSvm3fhzqdxxBNQENvpjO2dVyD7KJmLTTQyXpRb1nM5O04oFdDTUtG3SHMl4+e+zgCK2A==
