@@ -6,6 +6,7 @@ import {
   UpdateDateColumn,
   ManyToOne,
   OneToMany,
+  OneToOne,
   JoinColumn,
 } from 'typeorm';
 import { User } from '../../users/entities/user.entity';
@@ -14,6 +15,9 @@ import { OrderItem } from './order-item.entity';
 export enum OrderStatus {
   PENDING = 'pending',
   CONFIRMED = 'confirmed',
+  PROCESSING = 'processing',
+  OUT_FOR_DELIVERY = 'out_for_delivery',
+  DELIVERED = 'delivered',
   CANCELLED = 'cancelled',
 }
 
@@ -61,6 +65,12 @@ export class Order {
     eager: true,
   })
   orderItems: OrderItem[];
+
+  @OneToOne('Payment', 'order')
+  payment: any;
+
+  @OneToOne('Invoice', 'order')
+  invoice: any;
 
   @CreateDateColumn()
   createdAt: Date;

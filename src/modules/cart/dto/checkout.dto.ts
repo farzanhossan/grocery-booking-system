@@ -2,6 +2,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   IsBoolean,
+  IsEnum,
   IsNotEmpty,
   IsOptional,
   IsString,
@@ -9,6 +10,7 @@ import {
   ValidateIf,
   ValidateNested,
 } from 'class-validator';
+import { PaymentMethod } from '../../payment/enums/payment-method.enum';
 
 export class CheckoutDeliveryAddressDto {
   @ApiProperty({ example: '123 Main Street' })
@@ -62,4 +64,13 @@ export class CheckoutDto {
   @IsOptional()
   @IsString()
   addressLabel?: string;
+
+  @ApiPropertyOptional({
+    enum: PaymentMethod,
+    default: PaymentMethod.CASH_ON_DELIVERY,
+    description: 'Payment method',
+  })
+  @IsOptional()
+  @IsEnum(PaymentMethod)
+  paymentMethod?: PaymentMethod;
 }

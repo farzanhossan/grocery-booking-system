@@ -4,6 +4,7 @@ import {
   ArrayMinSize,
   IsArray,
   IsBoolean,
+  IsEnum,
   IsInt,
   IsNotEmpty,
   IsOptional,
@@ -13,6 +14,7 @@ import {
   ValidateIf,
   ValidateNested,
 } from 'class-validator';
+import { PaymentMethod } from '../../payment/enums/payment-method.enum';
 
 export class OrderItemDto {
   @ApiProperty({ example: 'uuid-of-grocery-item' })
@@ -84,4 +86,13 @@ export class CreateOrderDto {
   @IsOptional()
   @IsString()
   addressLabel?: string;
+
+  @ApiPropertyOptional({
+    enum: PaymentMethod,
+    default: PaymentMethod.CASH_ON_DELIVERY,
+    description: 'Payment method',
+  })
+  @IsOptional()
+  @IsEnum(PaymentMethod)
+  paymentMethod?: PaymentMethod;
 }

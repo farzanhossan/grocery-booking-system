@@ -5,14 +5,30 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
-import { Order } from '../entities/order.entity';
+import { Order, OrderStatus } from '../entities/order.entity';
 import { OrderItem } from '../entities/order-item.entity';
 import { GroceryItem } from '../../grocery/entities/grocery-item.entity';
 import { CreateOrderDto } from '../dto/create-order.dto';
 import { OrderQueryDto } from '../dto/order-query.dto';
+import { UpdateOrderStatusDto } from '../dto/update-order-status.dto';
 import { PaginatedResult } from '../../../common/interfaces/paginated-response.interface';
 import { DeliveryService } from '../../delivery/services/delivery.service';
 import { AddressesService } from '../../addresses/services/addresses.service';
+import { PaymentService } from '../../payment/services/payment.service';
+import { InvoiceService } from '../../invoice/services/invoice.service';
+import { PaymentMethod } from '../../payment/enums/payment-method.enum';
+
+const VALID_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
+  [OrderStatus.PENDING]: [OrderStatus.CONFIRMED, OrderStatus.CANCELLED],
+  [OrderStatus.CONFIRMED]: [OrderStatus.PROCESSING, OrderStatus.CANCELLED],
+  [OrderStatus.PROCESSING]: [
+    OrderStatus.OUT_FOR_DELIVERY,
+    OrderStatus.CANCELLED,
+  ],
+  [OrderStatus.OUT_FOR_DELIVERY]: [OrderStatus.DELIVERED],
+  [OrderStatus.DELIVERED]: [],
+  [OrderStatus.CANCELLED]: [],
+};
 
 @Injectable()
 export class OrdersService {
@@ -22,14 +38,14 @@ export class OrdersService {
     private readonly dataSource: DataSource,
     private readonly deliveryService: DeliveryService,
     private readonly addressesService: AddressesService,
+    private readonly paymentService: PaymentService,
+    private readonly invoiceService: InvoiceService,
   ) {}
 
   async createOrder(userId: string, dto: CreateOrderDto): Promise<Order> {
-    // Validate delivery zone
     const zone = await this.deliveryService.findOneActive(dto.deliveryZoneId);
-
-    // Resolve delivery address
     const address = await this.resolveAddress(userId, dto);
+    const paymentMethod = dto.paymentMethod || PaymentMethod.CASH_ON_DELIVERY;
 
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
@@ -92,9 +108,26 @@ export class OrdersService {
       savedOrder.orderItems = orderItems;
       await queryRunner.manager.save(Order, savedOrder);
 
+      // Create payment
+      await this.paymentService.createPayment(
+        userId,
+        savedOrder.id,
+        paymentMethod,
+        savedOrder.totalAmount,
+        queryRunner,
+      );
+
+      // Create invoice
+      await this.invoiceService.createInvoice(
+        userId,
+        savedOrder,
+        paymentMethod,
+        queryRunner,
+      );
+
       await queryRunner.commitTransaction();
 
-      // Save address if requested (outside transaction — non-critical)
+      // Save address if requested (outside transaction)
       if (dto.saveAddress && dto.deliveryAddress) {
         await this.addressesService.create(userId, {
           ...dto.deliveryAddress,
@@ -115,12 +148,101 @@ export class OrdersService {
     }
   }
 
+  async findUserOrders(
+    userId: string,
+    query: OrderQueryDto,
+  ): Promise<PaginatedResult<Order>> {
+    return this.findOrders(query, userId);
+  }
+
+  async findAllOrders(
+    query: OrderQueryDto,
+  ): Promise<PaginatedResult<Order>> {
+    return this.findOrders(query);
+  }
+
+  async findOrderById(orderId: string): Promise<Order> {
+    const order = await this.ordersRepository.findOne({
+      where: { id: orderId },
+      relations: ['user', 'orderItems', 'orderItems.groceryItem'],
+    });
+    if (!order) {
+      throw new NotFoundException(`Order with ID "${orderId}" not found`);
+    }
+    return order;
+  }
+
+  async updateOrderStatus(
+    orderId: string,
+    dto: UpdateOrderStatusDto,
+  ): Promise<Order> {
+    const order = await this.findOrderById(orderId);
+
+    const allowed = VALID_TRANSITIONS[order.status];
+    if (!allowed.includes(dto.status)) {
+      throw new BadRequestException(
+        `Cannot transition from "${order.status}" to "${dto.status}"`,
+      );
+    }
+
+    order.status = dto.status;
+    await this.ordersRepository.save(order);
+
+    // Auto-complete payment on delivery (COD)
+    if (dto.status === OrderStatus.DELIVERED) {
+      await this.paymentService.markPaymentCompleted(orderId);
+      await this.invoiceService.updatePaidAmount(
+        orderId,
+        Number(order.totalAmount),
+      );
+    }
+
+    // Handle cancellation: restore inventory
+    if (dto.status === OrderStatus.CANCELLED) {
+      await this.restoreInventory(order);
+    }
+
+    return this.findOrderById(orderId);
+  }
+
+  private async restoreInventory(order: Order): Promise<void> {
+    for (const orderItem of order.orderItems) {
+      const groceryItem = await this.dataSource
+        .getRepository(GroceryItem)
+        .findOne({ where: { id: orderItem.groceryItem.id } });
+
+      if (groceryItem) {
+        groceryItem.quantity += orderItem.quantity;
+        groceryItem.isAvailable = true;
+        await this.dataSource.getRepository(GroceryItem).save(groceryItem);
+      }
+    }
+  }
+
   private async resolveAddress(
     userId: string,
-    dto: { deliveryAddressId?: string; deliveryAddress?: { street: string; city: string; state: string; postalCode: string; country: string } },
-  ): Promise<{ street: string; city: string; state: string; postalCode: string; country: string }> {
+    dto: {
+      deliveryAddressId?: string;
+      deliveryAddress?: {
+        street: string;
+        city: string;
+        state: string;
+        postalCode: string;
+        country: string;
+      };
+    },
+  ): Promise<{
+    street: string;
+    city: string;
+    state: string;
+    postalCode: string;
+    country: string;
+  }> {
     if (dto.deliveryAddressId) {
-      const saved = await this.addressesService.findOne(userId, dto.deliveryAddressId);
+      const saved = await this.addressesService.findOne(
+        userId,
+        dto.deliveryAddressId,
+      );
       return {
         street: saved.street,
         city: saved.city,
@@ -139,9 +261,9 @@ export class OrdersService {
     );
   }
 
-  async findUserOrders(
-    userId: string,
+  private async findOrders(
     query: OrderQueryDto,
+    userId?: string,
   ): Promise<PaginatedResult<Order>> {
     const page = query.page ?? 1;
     const limit = query.limit ?? 10;
@@ -149,36 +271,36 @@ export class OrdersService {
     const qb = this.ordersRepository.createQueryBuilder('order');
     qb.leftJoinAndSelect('order.orderItems', 'orderItem');
     qb.leftJoinAndSelect('orderItem.groceryItem', 'groceryItem');
-    qb.where('order.userId = :userId', { userId });
 
-    // Filter by status
+    if (userId) {
+      qb.where('order.userId = :userId', { userId });
+    }
+
     if (query.status) {
       qb.andWhere('order.status = :status', { status: query.status });
     }
 
-    // Filter by date range
     if (query.fromDate) {
-      qb.andWhere('order.createdAt >= :fromDate', { fromDate: query.fromDate });
+      qb.andWhere('order.createdAt >= :fromDate', {
+        fromDate: query.fromDate,
+      });
     }
     if (query.toDate) {
       qb.andWhere('order.createdAt <= :toDate', { toDate: query.toDate });
     }
 
-    // Search by order ID
     if (query.search) {
       qb.andWhere('CAST(order.id AS TEXT) LIKE :search', {
         search: `%${query.search}%`,
       });
     }
 
-    // Sorting
     const allowedSortFields = ['createdAt', 'totalAmount', 'status'];
     const sortBy = allowedSortFields.includes(query.sortBy)
       ? `order.${query.sortBy}`
       : 'order.createdAt';
     qb.orderBy(sortBy, query.sortOrder ?? 'DESC');
 
-    // Pagination
     const totalItems = await qb.getCount();
     const totalPages = Math.ceil(totalItems / limit);
 

@@ -15,6 +15,9 @@ import { UpdateCartItemDto } from '../dto/update-cart-item.dto';
 import { CheckoutDto } from '../dto/checkout.dto';
 import { DeliveryService } from '../../delivery/services/delivery.service';
 import { AddressesService } from '../../addresses/services/addresses.service';
+import { PaymentService } from '../../payment/services/payment.service';
+import { InvoiceService } from '../../invoice/services/invoice.service';
+import { PaymentMethod } from '../../payment/enums/payment-method.enum';
 
 @Injectable()
 export class CartService {
@@ -26,6 +29,8 @@ export class CartService {
     private readonly dataSource: DataSource,
     private readonly deliveryService: DeliveryService,
     private readonly addressesService: AddressesService,
+    private readonly paymentService: PaymentService,
+    private readonly invoiceService: InvoiceService,
   ) {}
 
   async getCart(userId: string): Promise<Cart> {
@@ -145,11 +150,9 @@ export class CartService {
       throw new BadRequestException('Cart is empty');
     }
 
-    // Validate delivery zone
     const zone = await this.deliveryService.findOneActive(dto.deliveryZoneId);
-
-    // Resolve delivery address
     const address = await this.resolveAddress(userId, dto);
+    const paymentMethod = dto.paymentMethod || PaymentMethod.CASH_ON_DELIVERY;
 
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
@@ -214,12 +217,29 @@ export class CartService {
       savedOrder.orderItems = orderItems;
       await queryRunner.manager.save(Order, savedOrder);
 
+      // Create payment
+      await this.paymentService.createPayment(
+        userId,
+        savedOrder.id,
+        paymentMethod,
+        savedOrder.totalAmount,
+        queryRunner,
+      );
+
+      // Create invoice
+      await this.invoiceService.createInvoice(
+        userId,
+        savedOrder,
+        paymentMethod,
+        queryRunner,
+      );
+
       // Clear cart items within the transaction
       await queryRunner.manager.remove(CartItem, cart.cartItems);
 
       await queryRunner.commitTransaction();
 
-      // Save address if requested (outside transaction — non-critical)
+      // Save address if requested (outside transaction)
       if (dto.saveAddress && dto.deliveryAddress) {
         await this.addressesService.create(userId, {
           ...dto.deliveryAddress,
@@ -242,10 +262,28 @@ export class CartService {
 
   private async resolveAddress(
     userId: string,
-    dto: { deliveryAddressId?: string; deliveryAddress?: { street: string; city: string; state: string; postalCode: string; country: string } },
-  ): Promise<{ street: string; city: string; state: string; postalCode: string; country: string }> {
+    dto: {
+      deliveryAddressId?: string;
+      deliveryAddress?: {
+        street: string;
+        city: string;
+        state: string;
+        postalCode: string;
+        country: string;
+      };
+    },
+  ): Promise<{
+    street: string;
+    city: string;
+    state: string;
+    postalCode: string;
+    country: string;
+  }> {
     if (dto.deliveryAddressId) {
-      const saved = await this.addressesService.findOne(userId, dto.deliveryAddressId);
+      const saved = await this.addressesService.findOne(
+        userId,
+        dto.deliveryAddressId,
+      );
       return {
         street: saved.street,
         city: saved.city,

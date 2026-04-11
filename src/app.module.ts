@@ -9,6 +9,8 @@ import { OrdersModule } from './modules/orders/orders.module';
 import { CartModule } from './modules/cart/cart.module';
 import { DeliveryModule } from './modules/delivery/delivery.module';
 import { AddressesModule } from './modules/addresses/addresses.module';
+import { PaymentModule } from './modules/payment/payment.module';
+import { InvoiceModule } from './modules/invoice/invoice.module';
 import { User } from './modules/users/entities/user.entity';
 import { GroceryItem } from './modules/grocery/entities/grocery-item.entity';
 import { Order } from './modules/orders/entities/order.entity';
@@ -17,6 +19,9 @@ import { Cart } from './modules/cart/entities/cart.entity';
 import { CartItem } from './modules/cart/entities/cart-item.entity';
 import { DeliveryZone } from './modules/delivery/entities/delivery-zone.entity';
 import { UserAddress } from './modules/addresses/entities/user-address.entity';
+import { Payment } from './modules/payment/entities/payment.entity';
+import { Refund } from './modules/payment/entities/refund.entity';
+import { Invoice } from './modules/invoice/entities/invoice.entity';
 
 @Module({
   imports: [
@@ -31,7 +36,7 @@ import { UserAddress } from './modules/addresses/entities/user-address.entity';
         username: configService.get<string>('DB_USER', 'grocery_user'),
         password: configService.get<string>('DB_PASS', 'grocery_pass'),
         database: configService.get<string>('DB_NAME', 'grocery_db'),
-        entities: [User, GroceryItem, Order, OrderItem, Cart, CartItem, DeliveryZone, UserAddress],
+        entities: [User, GroceryItem, Order, OrderItem, Cart, CartItem, DeliveryZone, UserAddress, Payment, Refund, Invoice],
         synchronize: true,
       }),
     }),
@@ -42,6 +47,8 @@ import { UserAddress } from './modules/addresses/entities/user-address.entity';
     CartModule,
     DeliveryModule,
     AddressesModule,
+    PaymentModule,
+    InvoiceModule,
   ],
 })
 export class AppModule implements NestModule {
