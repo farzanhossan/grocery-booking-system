@@ -18,6 +18,8 @@ import { AddressesService } from '../../addresses/services/addresses.service';
 import { PaymentService } from '../../payment/services/payment.service';
 import { InvoiceService } from '../../invoice/services/invoice.service';
 import { PaymentMethod } from '../../payment/enums/payment-method.enum';
+import { OrderTimelineService } from '../../order-timeline/services/order-timeline.service';
+import { OrderStatus } from '../../orders/entities/order.entity';
 
 @Injectable()
 export class CartService {
@@ -31,6 +33,7 @@ export class CartService {
     private readonly addressesService: AddressesService,
     private readonly paymentService: PaymentService,
     private readonly invoiceService: InvoiceService,
+    private readonly orderTimelineService: OrderTimelineService,
   ) {}
 
   async getCart(userId: string): Promise<Cart> {
@@ -170,6 +173,7 @@ export class CartService {
         deliveryState: address.state,
         deliveryPostalCode: address.postalCode,
         deliveryCountry: address.country,
+        notes: dto.notes || null,
       });
       const savedOrder = await queryRunner.manager.save(Order, order);
 
@@ -231,6 +235,15 @@ export class CartService {
         userId,
         savedOrder,
         paymentMethod,
+        queryRunner,
+      );
+
+      // Add timeline entry
+      await this.orderTimelineService.addEntry(
+        savedOrder.id,
+        OrderStatus.PENDING,
+        'Order placed via cart checkout',
+        userId,
         queryRunner,
       );
 

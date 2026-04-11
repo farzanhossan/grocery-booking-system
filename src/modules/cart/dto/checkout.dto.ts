@@ -73,4 +73,12 @@ export class CheckoutDto {
   @IsOptional()
   @IsEnum(PaymentMethod)
   paymentMethod?: PaymentMethod;
+
+  @ApiPropertyOptional({
+    example: 'Please leave at the door',
+    description: 'Special instructions or notes for the order',
+  })
+  @IsOptional()
+  @IsString()
+  notes?: string;
 }

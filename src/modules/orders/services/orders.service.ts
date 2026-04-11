@@ -17,6 +17,7 @@ import { AddressesService } from '../../addresses/services/addresses.service';
 import { PaymentService } from '../../payment/services/payment.service';
 import { InvoiceService } from '../../invoice/services/invoice.service';
 import { PaymentMethod } from '../../payment/enums/payment-method.enum';
+import { OrderTimelineService } from '../../order-timeline/services/order-timeline.service';
 
 const VALID_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
   [OrderStatus.PENDING]: [OrderStatus.CONFIRMED, OrderStatus.CANCELLED],
@@ -40,6 +41,7 @@ export class OrdersService {
     private readonly addressesService: AddressesService,
     private readonly paymentService: PaymentService,
     private readonly invoiceService: InvoiceService,
+    private readonly orderTimelineService: OrderTimelineService,
   ) {}
 
   async createOrder(userId: string, dto: CreateOrderDto): Promise<Order> {
@@ -63,6 +65,7 @@ export class OrdersService {
         deliveryState: address.state,
         deliveryPostalCode: address.postalCode,
         deliveryCountry: address.country,
+        notes: dto.notes || null,
       });
       const savedOrder = await queryRunner.manager.save(Order, order);
 
@@ -122,6 +125,15 @@ export class OrdersService {
         userId,
         savedOrder,
         paymentMethod,
+        queryRunner,
+      );
+
+      // Add timeline entry
+      await this.orderTimelineService.addEntry(
+        savedOrder.id,
+        OrderStatus.PENDING,
+        'Order placed',
+        userId,
         queryRunner,
       );
 
@@ -187,6 +199,9 @@ export class OrdersService {
 
     order.status = dto.status;
     await this.ordersRepository.save(order);
+
+    // Add timeline entry
+    await this.orderTimelineService.addEntry(orderId, dto.status);
 
     // Auto-complete payment on delivery (COD)
     if (dto.status === OrderStatus.DELIVERED) {

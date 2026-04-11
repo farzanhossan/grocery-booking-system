@@ -60,6 +60,9 @@ export class Order {
   @Column({ nullable: true })
   deliveryCountry: string;
 
+  @Column({ nullable: true })
+  notes: string;
+
   @OneToMany(() => OrderItem, (orderItem) => orderItem.order, {
     cascade: true,
     eager: true,
@@ -71,6 +74,9 @@ export class Order {
 
   @OneToOne('Invoice', 'order')
   invoice: any;
+
+  @OneToMany('OrderTimeline', 'order')
+  timeline: any[];
 
   @CreateDateColumn()
   createdAt: Date;

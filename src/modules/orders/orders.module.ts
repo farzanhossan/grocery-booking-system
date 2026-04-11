@@ -9,6 +9,7 @@ import { DeliveryModule } from '../delivery/delivery.module';
 import { AddressesModule } from '../addresses/addresses.module';
 import { PaymentModule } from '../payment/payment.module';
 import { InvoiceModule } from '../invoice/invoice.module';
+import { OrderTimelineModule } from '../order-timeline/order-timeline.module';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { InvoiceModule } from '../invoice/invoice.module';
     AddressesModule,
     PaymentModule,
     InvoiceModule,
+    OrderTimelineModule,
   ],
   controllers: [WebOrdersController, InternalOrdersController],
   providers: [OrdersService],

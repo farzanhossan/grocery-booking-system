@@ -17,6 +17,9 @@ export class DeliveryZone {
   @Column({ type: 'decimal', precision: 10, scale: 2 })
   charge: number;
 
+  @Column({ type: 'int', nullable: true })
+  estimatedMinutes: number;
+
   @Column({ default: true })
   isActive: boolean;
 

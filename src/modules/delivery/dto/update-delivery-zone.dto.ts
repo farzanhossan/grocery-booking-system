@@ -1,6 +1,7 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsBoolean,
+  IsInt,
   IsNotEmpty,
   IsNumber,
   IsOptional,
@@ -20,6 +21,12 @@ export class UpdateDeliveryZoneDto {
   @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
   charge?: number;
+
+  @ApiPropertyOptional({ example: 45, description: 'Estimated delivery time in minutes' })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  estimatedMinutes?: number;
 
   @ApiPropertyOptional({ example: true })
   @IsOptional()

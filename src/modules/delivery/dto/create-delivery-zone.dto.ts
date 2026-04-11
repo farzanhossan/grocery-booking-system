@@ -1,5 +1,5 @@
-import { ApiProperty } from '@nestjs/swagger';
-import { IsNotEmpty, IsNumber, IsString, Min } from 'class-validator';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsInt, IsNotEmpty, IsNumber, IsOptional, IsString, Min } from 'class-validator';
 
 export class CreateDeliveryZoneDto {
   @ApiProperty({ example: 'Inside Dhaka' })
@@ -11,4 +11,10 @@ export class CreateDeliveryZoneDto {
   @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
   charge: number;
+
+  @ApiPropertyOptional({ example: 45, description: 'Estimated delivery time in minutes' })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  estimatedMinutes?: number;
 }
