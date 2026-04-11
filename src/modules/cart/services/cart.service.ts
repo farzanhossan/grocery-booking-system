@@ -12,6 +12,9 @@ import { Order } from '../../orders/entities/order.entity';
 import { OrderItem } from '../../orders/entities/order-item.entity';
 import { AddToCartDto } from '../dto/add-to-cart.dto';
 import { UpdateCartItemDto } from '../dto/update-cart-item.dto';
+import { CheckoutDto } from '../dto/checkout.dto';
+import { DeliveryService } from '../../delivery/services/delivery.service';
+import { AddressesService } from '../../addresses/services/addresses.service';
 
 @Injectable()
 export class CartService {
@@ -21,6 +24,8 @@ export class CartService {
     @InjectRepository(CartItem)
     private readonly cartItemRepository: Repository<CartItem>,
     private readonly dataSource: DataSource,
+    private readonly deliveryService: DeliveryService,
+    private readonly addressesService: AddressesService,
   ) {}
 
   async getCart(userId: string): Promise<Cart> {
@@ -133,12 +138,18 @@ export class CartService {
     }
   }
 
-  async checkout(userId: string): Promise<Order> {
+  async checkout(userId: string, dto: CheckoutDto): Promise<Order> {
     const cart = await this.getCart(userId);
 
     if (!cart.cartItems?.length) {
       throw new BadRequestException('Cart is empty');
     }
+
+    // Validate delivery zone
+    const zone = await this.deliveryService.findOneActive(dto.deliveryZoneId);
+
+    // Resolve delivery address
+    const address = await this.resolveAddress(userId, dto);
 
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
@@ -147,11 +158,19 @@ export class CartService {
     try {
       const order = queryRunner.manager.create(Order, {
         user: { id: userId } as any,
+        subtotalAmount: 0,
+        deliveryCharge: zone.charge,
         totalAmount: 0,
+        deliveryZoneName: zone.name,
+        deliveryStreet: address.street,
+        deliveryCity: address.city,
+        deliveryState: address.state,
+        deliveryPostalCode: address.postalCode,
+        deliveryCountry: address.country,
       });
       const savedOrder = await queryRunner.manager.save(Order, order);
 
-      let totalAmount = 0;
+      let subtotalAmount = 0;
       const orderItems: OrderItem[] = [];
 
       for (const cartItem of cart.cartItems) {
@@ -176,7 +195,7 @@ export class CartService {
         await queryRunner.manager.save(GroceryItem, groceryItem);
 
         const subtotal = Number(groceryItem.price) * cartItem.quantity;
-        totalAmount += subtotal;
+        subtotalAmount += subtotal;
 
         const orderItem = queryRunner.manager.create(OrderItem, {
           order: savedOrder,
@@ -190,7 +209,8 @@ export class CartService {
         );
       }
 
-      savedOrder.totalAmount = totalAmount;
+      savedOrder.subtotalAmount = subtotalAmount;
+      savedOrder.totalAmount = subtotalAmount + Number(zone.charge);
       savedOrder.orderItems = orderItems;
       await queryRunner.manager.save(Order, savedOrder);
 
@@ -198,6 +218,15 @@ export class CartService {
       await queryRunner.manager.remove(CartItem, cart.cartItems);
 
       await queryRunner.commitTransaction();
+
+      // Save address if requested (outside transaction — non-critical)
+      if (dto.saveAddress && dto.deliveryAddress) {
+        await this.addressesService.create(userId, {
+          ...dto.deliveryAddress,
+          label: dto.addressLabel,
+          isDefault: false,
+        });
+      }
 
       return this.dataSource.getRepository(Order).findOne({
         where: { id: savedOrder.id },
@@ -209,5 +238,29 @@ export class CartService {
     } finally {
       await queryRunner.release();
     }
+  }
+
+  private async resolveAddress(
+    userId: string,
+    dto: { deliveryAddressId?: string; deliveryAddress?: { street: string; city: string; state: string; postalCode: string; country: string } },
+  ): Promise<{ street: string; city: string; state: string; postalCode: string; country: string }> {
+    if (dto.deliveryAddressId) {
+      const saved = await this.addressesService.findOne(userId, dto.deliveryAddressId);
+      return {
+        street: saved.street,
+        city: saved.city,
+        state: saved.state,
+        postalCode: saved.postalCode,
+        country: saved.country,
+      };
+    }
+
+    if (dto.deliveryAddress) {
+      return dto.deliveryAddress;
+    }
+
+    throw new BadRequestException(
+      'Either deliveryAddressId or deliveryAddress must be provided',
+    );
   }
 }

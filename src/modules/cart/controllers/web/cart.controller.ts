@@ -19,6 +19,7 @@ import { UserRole } from '../../../users/entities/user.entity';
 import { CartService } from '../../services/cart.service';
 import { AddToCartDto } from '../../dto/add-to-cart.dto';
 import { UpdateCartItemDto } from '../../dto/update-cart-item.dto';
+import { CheckoutDto } from '../../dto/checkout.dto';
 
 @ApiTags('Web - Cart')
 @ApiBearerAuth()
@@ -73,7 +74,7 @@ export class WebCartController {
   @Post('checkout')
   @ApiOperation({ summary: 'Checkout - place order from cart items' })
   @ResponseMessage('Order placed successfully')
-  checkout(@Request() req) {
-    return this.cartService.checkout(req.user.id);
+  checkout(@Request() req, @Body() dto: CheckoutDto) {
+    return this.cartService.checkout(req.user.id, dto);
   }
 }

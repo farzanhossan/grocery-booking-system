@@ -11,6 +11,8 @@ import { GroceryItem } from '../../grocery/entities/grocery-item.entity';
 import { CreateOrderDto } from '../dto/create-order.dto';
 import { OrderQueryDto } from '../dto/order-query.dto';
 import { PaginatedResult } from '../../../common/interfaces/paginated-response.interface';
+import { DeliveryService } from '../../delivery/services/delivery.service';
+import { AddressesService } from '../../addresses/services/addresses.service';
 
 @Injectable()
 export class OrdersService {
@@ -18,9 +20,17 @@ export class OrdersService {
     @InjectRepository(Order)
     private readonly ordersRepository: Repository<Order>,
     private readonly dataSource: DataSource,
+    private readonly deliveryService: DeliveryService,
+    private readonly addressesService: AddressesService,
   ) {}
 
   async createOrder(userId: string, dto: CreateOrderDto): Promise<Order> {
+    // Validate delivery zone
+    const zone = await this.deliveryService.findOneActive(dto.deliveryZoneId);
+
+    // Resolve delivery address
+    const address = await this.resolveAddress(userId, dto);
+
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
@@ -28,11 +38,19 @@ export class OrdersService {
     try {
       const order = queryRunner.manager.create(Order, {
         user: { id: userId } as any,
+        subtotalAmount: 0,
+        deliveryCharge: zone.charge,
         totalAmount: 0,
+        deliveryZoneName: zone.name,
+        deliveryStreet: address.street,
+        deliveryCity: address.city,
+        deliveryState: address.state,
+        deliveryPostalCode: address.postalCode,
+        deliveryCountry: address.country,
       });
       const savedOrder = await queryRunner.manager.save(Order, order);
 
-      let totalAmount = 0;
+      let subtotalAmount = 0;
       const orderItems: OrderItem[] = [];
 
       for (const item of dto.items) {
@@ -57,7 +75,7 @@ export class OrdersService {
         await queryRunner.manager.save(GroceryItem, groceryItem);
 
         const subtotal = Number(groceryItem.price) * item.quantity;
-        totalAmount += subtotal;
+        subtotalAmount += subtotal;
 
         const orderItem = queryRunner.manager.create(OrderItem, {
           order: savedOrder,
@@ -69,11 +87,21 @@ export class OrdersService {
         orderItems.push(await queryRunner.manager.save(OrderItem, orderItem));
       }
 
-      savedOrder.totalAmount = totalAmount;
+      savedOrder.subtotalAmount = subtotalAmount;
+      savedOrder.totalAmount = subtotalAmount + Number(zone.charge);
       savedOrder.orderItems = orderItems;
       await queryRunner.manager.save(Order, savedOrder);
 
       await queryRunner.commitTransaction();
+
+      // Save address if requested (outside transaction — non-critical)
+      if (dto.saveAddress && dto.deliveryAddress) {
+        await this.addressesService.create(userId, {
+          ...dto.deliveryAddress,
+          label: dto.addressLabel,
+          isDefault: false,
+        });
+      }
 
       return this.ordersRepository.findOne({
         where: { id: savedOrder.id },
@@ -85,6 +113,30 @@ export class OrdersService {
     } finally {
       await queryRunner.release();
     }
+  }
+
+  private async resolveAddress(
+    userId: string,
+    dto: { deliveryAddressId?: string; deliveryAddress?: { street: string; city: string; state: string; postalCode: string; country: string } },
+  ): Promise<{ street: string; city: string; state: string; postalCode: string; country: string }> {
+    if (dto.deliveryAddressId) {
+      const saved = await this.addressesService.findOne(userId, dto.deliveryAddressId);
+      return {
+        street: saved.street,
+        city: saved.city,
+        state: saved.state,
+        postalCode: saved.postalCode,
+        country: saved.country,
+      };
+    }
+
+    if (dto.deliveryAddress) {
+      return dto.deliveryAddress;
+    }
+
+    throw new BadRequestException(
+      'Either deliveryAddressId or deliveryAddress must be provided',
+    );
   }
 
   async findUserOrders(

@@ -1,31 +1,16 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
-  ArrayMinSize,
-  IsArray,
   IsBoolean,
-  IsInt,
   IsNotEmpty,
   IsOptional,
   IsString,
   IsUUID,
-  Min,
   ValidateIf,
   ValidateNested,
 } from 'class-validator';
 
-export class OrderItemDto {
-  @ApiProperty({ example: 'uuid-of-grocery-item' })
-  @IsUUID()
-  groceryItemId: string;
-
-  @ApiProperty({ example: 2, minimum: 1 })
-  @IsInt()
-  @Min(1)
-  quantity: number;
-}
-
-export class DeliveryAddressDto {
+export class CheckoutDeliveryAddressDto {
   @ApiProperty({ example: '123 Main Street' })
   @IsString()
   @IsNotEmpty()
@@ -52,14 +37,7 @@ export class DeliveryAddressDto {
   country: string;
 }
 
-export class CreateOrderDto {
-  @ApiProperty({ type: [OrderItemDto] })
-  @IsArray()
-  @ArrayMinSize(1)
-  @ValidateNested({ each: true })
-  @Type(() => OrderItemDto)
-  items: OrderItemDto[];
-
+export class CheckoutDto {
   @ApiProperty({ example: 'uuid-of-delivery-zone', description: 'Selected delivery zone ID' })
   @IsUUID()
   deliveryZoneId: string;
@@ -69,11 +47,11 @@ export class CreateOrderDto {
   @IsUUID()
   deliveryAddressId?: string;
 
-  @ApiPropertyOptional({ type: DeliveryAddressDto, description: 'Inline delivery address (if not using saved address)' })
+  @ApiPropertyOptional({ type: CheckoutDeliveryAddressDto, description: 'Inline delivery address (if not using saved address)' })
   @ValidateIf((o) => !o.deliveryAddressId)
   @ValidateNested()
-  @Type(() => DeliveryAddressDto)
-  deliveryAddress?: DeliveryAddressDto;
+  @Type(() => CheckoutDeliveryAddressDto)
+  deliveryAddress?: CheckoutDeliveryAddressDto;
 
   @ApiPropertyOptional({ example: true, description: 'Save the inline address for future use' })
   @IsOptional()

@@ -30,7 +30,31 @@ export class Order {
   status: OrderStatus;
 
   @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 })
+  subtotalAmount: number;
+
+  @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 })
+  deliveryCharge: number;
+
+  @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 })
   totalAmount: number;
+
+  @Column({ nullable: true })
+  deliveryZoneName: string;
+
+  @Column({ nullable: true })
+  deliveryStreet: string;
+
+  @Column({ nullable: true })
+  deliveryCity: string;
+
+  @Column({ nullable: true })
+  deliveryState: string;
+
+  @Column({ nullable: true })
+  deliveryPostalCode: string;
+
+  @Column({ nullable: true })
+  deliveryCountry: string;
 
   @OneToMany(() => OrderItem, (orderItem) => orderItem.order, {
     cascade: true,
