@@ -1,19 +1,7 @@
 services:
-  api:
-    image: ${DOCKERHUB_USERNAME}/grocery-booking-system:latest
-    ports:
-      - "${PORT:-3000}:3000"
-    env_file:
-      - .env
-    depends_on:
-      postgres:
-        condition: service_healthy
-    networks:
-      - grocery-net
-    restart: always
-
   postgres:
     image: postgres:16-alpine
+    container_name: grocery-postgres
     environment:
       POSTGRES_DB: ${DB_NAME}
       POSTGRES_USER: ${DB_USER}
@@ -31,6 +19,7 @@ services:
 
 networks:
   grocery-net:
+    name: grocery-net
     driver: bridge
 
 volumes:

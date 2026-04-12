@@ -1,50 +1,231 @@
-name: Deploy to VPS
+name: Grocery Booking System - Deploy
 
 on:
   push:
-    branches:
-      - staging
+    branches: [staging]
+  workflow_dispatch:
 
 env:
-  IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/grocery-booking-system
+  DOCKER_USER: ${{ secrets.DOCKER_HUB_USER }}
+  DOCKER_PASSWORD: ${{ secrets.DOCKER_HUB_PASSWORD }}
+  APP_NAME: grocery-booking-system
+  NGINX_CONFIG_PATH: /etc/nginx/sites-enabled/grocery-backend
+  APP_DOMAIN: ${{ secrets.APP_DOMAIN }}
+  HEALTH_CHECK_END_POINT: /api/docs
+  DEPLOY_DIRECTORY: "~/deploy/grocery-booking-system"
 
 jobs:
-  build-and-deploy:
+  # ──────────────────────────────────────────────
+  # Backend → Docker Hub → VPS
+  # ──────────────────────────────────────────────
+  Backend:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      - name: Generate .env
+        run: |
+          envsubst "`printf '${%s} ' $(sh -c "env|cut -d'=' -f1")`" < ./environments/prod.example.env > ./environments/production.env
+          envsubst < docker-compose.production.yml > docker-compose.yml
+        env:
+          PORT: 3000
+          NODE_ENV: production
 
-      - name: Login to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          # Database
+          DB_HOST: grocery-postgres
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASS: ${{ secrets.DB_PASS }}
+          DB_NAME: ${{ secrets.DB_NAME }}
 
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          push: true
-          tags: |
-            ${{ env.IMAGE_NAME }}:${{ github.sha }}
-            ${{ env.IMAGE_NAME }}:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # JWT
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          JWT_EXPIRES_IN: 7d
 
-      - name: Deploy to VPS via SSH
-        uses: appleboy/ssh-action@v1
+          # Docker
+          DOCKER_SERVICE_NAME: grocery-backend
+          DOCKER_USER: ${{ secrets.DOCKER_HUB_USER }}
+
+      - name: Log in to Docker Hub
+        run: docker login -u ${{ env.DOCKER_USER }} -p ${{ env.DOCKER_PASSWORD }}
+
+      - name: Build the Docker image
+        run: docker build . --file Dockerfile --tag ${{ env.DOCKER_USER }}/${{ env.APP_NAME }}:latest
+
+      - name: Docker Push
+        run: docker push ${{ env.DOCKER_USER }}/${{ env.APP_NAME }}:latest
+
+      - name: Ensure Docker Compose and Env File Exist
+        run: |
+          if [ ! -f environments/production.env ]; then
+            echo "File environments/production.env does not exist."
+            exit 1
+          fi
+          if [ ! -f docker-compose.yml ]; then
+            echo "File docker-compose.yml does not exist."
+            exit 1
+          fi
+
+      - name: Transfer Docker Compose and Env File
+        uses: appleboy/scp-action@master
         with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USERNAME }}
-          key: ${{ secrets.VPS_SSH_KEY }}
-          port: ${{ secrets.VPS_PORT }}
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USER }}
+          key: ${{ secrets.SSH_KEY }}
+          source: "environments,docker-compose.yml,nginx"
+          target: ${{ env.DEPLOY_DIRECTORY }}
+
+      - name: Zero Downtime Deploy
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USER }}
+          key: ${{ secrets.SSH_KEY }}
           script: |
-            cd ~/grocery-booking-system
-            docker compose -f docker-compose.prod.yml pull api
-            docker compose -f docker-compose.prod.yml up -d --force-recreate api
-            docker image prune -f
+            set -e
+
+            # Configuration
+            PRIMARY_PORT=3000
+            SECONDARY_PORT=3010
+            MAX_HEALTH_CHECK_ATTEMPTS=40
+            HEALTH_CHECK_INTERVAL=5
+
+            echo "Starting Zero Downtime Deployment"
+            echo "Deploy directory: ${{ env.DEPLOY_DIRECTORY }}"
+            cd ${{ env.DEPLOY_DIRECTORY }}
+
+            docker login -u ${{ env.DOCKER_USER }} -p ${{ env.DOCKER_PASSWORD }}
+            docker pull ${{ env.DOCKER_USER }}/${{ env.APP_NAME }}:latest
+
+            # Ensure Nginx config exists (first deploy)
+            if [ ! -f ${{ env.NGINX_CONFIG_PATH }} ]; then
+              echo "Nginx backend config not found. Creating from template..."
+              sudo cp nginx/backend.conf ${{ env.NGINX_CONFIG_PATH }}
+              sudo nginx -t && sudo nginx -s reload
+            fi
+
+            # Ensure postgres is running (shared across deploys)
+            if ! docker ps --format '{{.Names}}' | grep -q "^grocery-postgres$"; then
+              echo "Cleaning up any old postgres containers..."
+              docker ps -a --format '{{.Names}}' | grep grocery-postgres | xargs -r docker stop || true
+              docker ps -a --format '{{.Names}}' | grep grocery-postgres | xargs -r docker rm || true
+
+              echo "Creating shared network..."
+              docker network create grocery-net 2>/dev/null || true
+
+              echo "Starting PostgreSQL..."
+              docker compose --env-file environments/production.env -f docker-compose.yml -p grocery-db up -d postgres
+              echo "Waiting for PostgreSQL to be healthy..."
+              sleep 10
+            fi
+
+            # Find current port from Nginx
+            CURRENT_PORT=$(grep -oP '(?<=proxy_pass http://127.0.0.1:)\d+' ${{ env.NGINX_CONFIG_PATH }} 2>/dev/null || echo "")
+            if [ -z "$CURRENT_PORT" ]; then
+              echo "Could not detect CURRENT_PORT from Nginx config. Using primary port for first deploy."
+              CURRENT_PORT=$SECONDARY_PORT
+            fi
+
+            # Determine new port and container names
+            if [ "$CURRENT_PORT" = "$PRIMARY_PORT" ]; then
+              NEW_PORT=$SECONDARY_PORT
+              OLD_CONTAINER=grocery-backend-$PRIMARY_PORT
+              NEW_CONTAINER=grocery-backend-$SECONDARY_PORT
+            else
+              NEW_PORT=$PRIMARY_PORT
+              OLD_CONTAINER=grocery-backend-$SECONDARY_PORT
+              NEW_CONTAINER=grocery-backend-$PRIMARY_PORT
+            fi
+
+            # Define cleanup function
+            cleanup() {
+              echo "Running cleanup..."
+              docker stop "$NEW_CONTAINER" || true
+              docker rm "$NEW_CONTAINER" || true
+              docker image prune -af || true
+              docker container prune -f || true
+              docker builder prune -af || true
+              echo "Deployment canceled or failed. Cleaned up."
+              exit 1
+            }
+
+            trap cleanup ERR SIGINT SIGTERM
+
+            # Pre-clean existing new container if exists
+            if docker ps -a --format '{{.Names}}' | grep -q "^$NEW_CONTAINER$"; then
+              echo "Container $NEW_CONTAINER already exists. Removing..."
+              docker stop "$NEW_CONTAINER" || true
+              docker rm "$NEW_CONTAINER" || true
+            fi
+
+            # Run new backend container
+            echo "Starting new container: $NEW_CONTAINER on port $NEW_PORT"
+            docker run -d \
+              --name $NEW_CONTAINER \
+              --network grocery-net \
+              --env-file environments/production.env \
+              -e PORT=$PRIMARY_PORT \
+              -p $NEW_PORT:$PRIMARY_PORT \
+              --restart unless-stopped \
+              ${{ env.DOCKER_USER }}/${{ env.APP_NAME }}:latest
+
+            echo "Waiting 10s for container to initialize..."
+            sleep 10
+
+            echo "Health checking new container at port $NEW_PORT"
+            for ((i = 1; i <= MAX_HEALTH_CHECK_ATTEMPTS; i++)); do
+              if curl -sSf --connect-timeout 5 http://localhost:$NEW_PORT${{ env.HEALTH_CHECK_END_POINT }} > /dev/null; then
+                echo "Health check passed"
+                break
+              elif [ $i -eq $MAX_HEALTH_CHECK_ATTEMPTS ]; then
+                echo "Health check failed after $MAX_HEALTH_CHECK_ATTEMPTS attempts."
+                cleanup
+              else
+                echo "Retrying health check... ($i/$MAX_HEALTH_CHECK_ATTEMPTS)"
+                sleep $HEALTH_CHECK_INTERVAL
+              fi
+            done
+
+            echo "Updating Nginx to route to new port $NEW_PORT"
+            sudo cp ${{ env.NGINX_CONFIG_PATH }} ${{ env.NGINX_CONFIG_PATH }}.bak
+            sudo sed -i "s/proxy_pass http:\/\/127.0.0.1:$CURRENT_PORT;/proxy_pass http:\/\/127.0.0.1:$NEW_PORT;/g" ${{ env.NGINX_CONFIG_PATH }}
+
+            echo "Testing Nginx config"
+            if ! sudo nginx -t; then
+              echo "Nginx config invalid. Rolling back..."
+              sudo cp ${{ env.NGINX_CONFIG_PATH }}.bak ${{ env.NGINX_CONFIG_PATH }}
+              cleanup
+            fi
+
+            echo "Reloading Nginx"
+            sudo nginx -s reload
+            sleep 5
+
+            echo "Verifying new deployment through Nginx"
+            if curl -sSf https://${{ env.APP_DOMAIN }}${{ env.HEALTH_CHECK_END_POINT }} > /dev/null; then
+              echo "New deployment accessible via Nginx"
+            else
+              echo "Warning: Nginx not serving new app yet, continuing..."
+            fi
+
+            echo "Cleaning up old deployment..."
+            docker stop "$OLD_CONTAINER" || true
+            docker rm "$OLD_CONTAINER" || true
+
+            rm -f "${{ env.NGINX_CONFIG_PATH }}.bak"
+
+            echo "Final Docker cleanup..."
+            docker image prune -af || true
+            docker container prune -f || true
+            docker builder prune -af || true
+
+            echo ""
+            echo "============================================="
+            echo "DEPLOYMENT COMPLETED SUCCESSFULLY"
+            echo "============================================="
+            echo "Container: $NEW_CONTAINER"
+            echo "Port: $NEW_PORT"
+            echo "============================================="
+
+            echo "Running containers:"
+            docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" | grep grocery || true
