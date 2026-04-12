@@ -88,6 +88,13 @@ export class GroceryService {
         isAvailable: query.isAvailable,
       });
     }
+
+    // Category filter
+    if (query.categoryId) {
+      qb.andWhere('item.categoryId = :categoryId', {
+        categoryId: query.categoryId,
+      });
+    }
   }
 
   private async paginate(

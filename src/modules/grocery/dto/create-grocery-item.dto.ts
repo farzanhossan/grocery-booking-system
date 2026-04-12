@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsNotEmpty, IsNumber, IsOptional, IsString, Min } from 'class-validator';
+import { IsNotEmpty, IsNumber, IsOptional, IsString, IsUUID, Min } from 'class-validator';
 
 export class CreateGroceryItemDto {
   @ApiProperty({ example: 'Organic Bananas' })
@@ -26,4 +26,9 @@ export class CreateGroceryItemDto {
   @IsString()
   @IsOptional()
   imageUrl?: string;
+
+  @ApiPropertyOptional({ description: 'Category ID' })
+  @IsUUID()
+  @IsOptional()
+  categoryId?: string;
 }

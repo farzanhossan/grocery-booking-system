@@ -1,6 +1,6 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsBoolean, IsNumber, IsOptional, Min } from 'class-validator';
+import { IsBoolean, IsNumber, IsOptional, IsUUID, Min } from 'class-validator';
 import { PaginationQueryDto } from '../../../common/dto/pagination-query.dto';
 
 export class GroceryQueryDto extends PaginationQueryDto {
@@ -23,4 +23,9 @@ export class GroceryQueryDto extends PaginationQueryDto {
   @Type(() => Boolean)
   @IsBoolean()
   isAvailable?: boolean;
+
+  @ApiPropertyOptional({ description: 'Filter by category ID' })
+  @IsOptional()
+  @IsUUID()
+  categoryId?: string;
 }

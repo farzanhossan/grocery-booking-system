@@ -4,7 +4,10 @@ import {
   Column,
   CreateDateColumn,
   UpdateDateColumn,
+  ManyToOne,
+  JoinColumn,
 } from 'typeorm';
+import { Category } from '../../categories/entities/category.entity';
 
 @Entity('grocery_items')
 export class GroceryItem {
@@ -13,6 +16,13 @@ export class GroceryItem {
 
   @Column()
   name: string;
+
+  @ManyToOne(() => Category, { nullable: true, eager: true })
+  @JoinColumn({ name: 'categoryId' })
+  category: Category;
+
+  @Column({ nullable: true })
+  categoryId: string;
 
   @Column({ type: 'text', nullable: true })
   description: string;
