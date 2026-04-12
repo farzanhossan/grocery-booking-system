@@ -81,4 +81,9 @@ export class CheckoutDto {
   @IsOptional()
   @IsString()
   notes?: string;
+
+  @ApiPropertyOptional({ example: 'SAVE20', description: 'Coupon code to apply' })
+  @IsOptional()
+  @IsString()
+  couponCode?: string;
 }

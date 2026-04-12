@@ -34,6 +34,9 @@ export class Invoice {
   @Column({ type: 'decimal', precision: 10, scale: 2 })
   deliveryCharge: number;
 
+  @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 })
+  discountAmount: number;
+
   @Column({ type: 'decimal', precision: 10, scale: 2 })
   totalAmount: number;
 

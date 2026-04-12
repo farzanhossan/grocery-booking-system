@@ -9,6 +9,7 @@ import { AddressesModule } from '../addresses/addresses.module';
 import { PaymentModule } from '../payment/payment.module';
 import { InvoiceModule } from '../invoice/invoice.module';
 import { OrderTimelineModule } from '../order-timeline/order-timeline.module';
+import { CouponsModule } from '../coupons/coupons.module';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { OrderTimelineModule } from '../order-timeline/order-timeline.module';
     PaymentModule,
     InvoiceModule,
     OrderTimelineModule,
+    CouponsModule,
   ],
   controllers: [WebCartController],
   providers: [CartService],

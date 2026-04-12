@@ -18,6 +18,7 @@ import { PaymentService } from '../../payment/services/payment.service';
 import { InvoiceService } from '../../invoice/services/invoice.service';
 import { PaymentMethod } from '../../payment/enums/payment-method.enum';
 import { OrderTimelineService } from '../../order-timeline/services/order-timeline.service';
+import { CouponsService } from '../../coupons/services/coupons.service';
 
 const VALID_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
   [OrderStatus.PENDING]: [OrderStatus.CONFIRMED, OrderStatus.CANCELLED],
@@ -42,6 +43,7 @@ export class OrdersService {
     private readonly paymentService: PaymentService,
     private readonly invoiceService: InvoiceService,
     private readonly orderTimelineService: OrderTimelineService,
+    private readonly couponsService: CouponsService,
   ) {}
 
   async createOrder(userId: string, dto: CreateOrderDto): Promise<Order> {
@@ -107,7 +109,30 @@ export class OrdersService {
       }
 
       savedOrder.subtotalAmount = subtotalAmount;
-      savedOrder.totalAmount = subtotalAmount + Number(zone.charge);
+
+      // Apply coupon if provided
+      let discountAmount = 0;
+      if (dto.couponCode) {
+        const couponResult = await this.couponsService.validateCoupon(
+          dto.couponCode,
+          userId,
+          subtotalAmount,
+        );
+        discountAmount = couponResult.discountAmount;
+        savedOrder.couponCode = dto.couponCode.toUpperCase();
+        savedOrder.discountAmount = discountAmount;
+
+        await this.couponsService.applyCoupon(
+          couponResult.coupon.id,
+          userId,
+          savedOrder.id,
+          discountAmount,
+          queryRunner,
+        );
+      }
+
+      savedOrder.totalAmount =
+        subtotalAmount + Number(zone.charge) - discountAmount;
       savedOrder.orderItems = orderItems;
       await queryRunner.manager.save(Order, savedOrder);
 

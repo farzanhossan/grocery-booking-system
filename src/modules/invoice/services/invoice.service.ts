@@ -32,6 +32,7 @@ export class InvoiceService {
       user: { id: userId } as any,
       subtotalAmount: order.subtotalAmount,
       deliveryCharge: order.deliveryCharge,
+      discountAmount: order.discountAmount || 0,
       totalAmount: order.totalAmount,
       paidAmount: 0,
       paymentMethod,

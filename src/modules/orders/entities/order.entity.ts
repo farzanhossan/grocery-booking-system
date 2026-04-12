@@ -40,7 +40,13 @@ export class Order {
   deliveryCharge: number;
 
   @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 })
+  discountAmount: number;
+
+  @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 })
   totalAmount: number;
+
+  @Column({ nullable: true })
+  couponCode: string;
 
   @Column({ nullable: true })
   deliveryZoneName: string;
