@@ -1,6 +1,6 @@
 # Grocery Booking System API
 
-A production-ready RESTful API for managing grocery items, shopping carts, and order processing. Built with **NestJS**, **TypeORM**, and **PostgreSQL**, featuring JWT authentication, role-based access control, and a professional modular architecture.
+A production-ready RESTful API for managing grocery items, shopping carts, order processing, payments, invoices, and delivery. Built with **NestJS**, **TypeORM**, and **PostgreSQL**, featuring JWT authentication, role-based access control, and zero-downtime CI/CD deployment.
 
 ## Tech Stack
 
@@ -15,62 +15,86 @@ A production-ready RESTful API for managing grocery items, shopping carts, and o
 | Validation | class-validator / class-transformer |
 | Docs | Swagger (OpenAPI 3.0) |
 | Containerization | Docker + Docker Compose |
+| CI/CD | GitHub Actions + Docker Hub |
+| Deployment | Zero-downtime blue-green via Nginx |
 
 ## Architecture
 
 ```
 src/
-  common/                                  # Cross-cutting concerns
-    decorators/                            # Custom decorators (@Roles, @ResponseMessage)
-    dto/                                   # Reusable DTOs (PaginationQueryDto)
-    filters/                               # Global exception filters
-    guards/                                # Auth & role guards
-    interceptors/                          # Response transformation
-    interfaces/                            # Shared interfaces & types
-    middleware/                            # HTTP logger middleware
-    strategies/                            # Passport JWT strategy
+  common/
+    decorators/                 # @Roles, @ResponseMessage, @CurrentUser
+    dto/                        # PaginationQueryDto
+    filters/                    # Global exception filter
+    guards/                     # JWT auth & role guards
+    interceptors/               # Response transformation
+    interfaces/                 # Shared interfaces & types
+    middleware/                  # HTTP logger middleware
+    strategies/                 # Passport JWT strategy
   modules/
-    auth/
-      controllers/                         # Auth endpoints
-      dto/                                 # Login & Register DTOs
-      services/                            # Auth business logic
-    users/
-      entities/                            # User entity
-      services/                            # User CRUD operations
-    grocery/
+    auth/                       # Register & login
+    users/                      # User entity & service
+    grocery/                    # Grocery items CRUD + inventory
       controllers/
-        internal/                          # Admin endpoints (/internal/grocery)
-        web/                               # User-facing endpoints (/grocery)
-      dto/                                 # Grocery DTOs + query filters
-      entities/                            # GroceryItem entity
-      services/                            # Grocery business logic
-    orders/
+        internal/               # Admin: /internal/grocery
+        web/                    # User: /grocery
+    categories/                 # Hierarchical grocery categories
       controllers/
-        web/                               # User-facing endpoints (/orders)
-      dto/                                 # Order DTOs + query filters
-      entities/                            # Order & OrderItem entities
-      services/                            # Order business logic (transactional)
-    cart/
+        internal/               # Admin: /internal/categories
+        web/                    # User: /categories
+    cart/                       # Shopping cart + checkout
       controllers/
-        web/                               # User-facing endpoints (/cart)
-      dto/                                 # Cart DTOs
-      entities/                            # Cart & CartItem entities
-      services/                            # Cart + checkout logic (transactional)
-  app.module.ts                            # Root module with middleware config
-  main.ts                                  # Bootstrap, global pipes/interceptors/filters
+        web/                    # User: /cart
+    orders/                     # Order management + status transitions
+      controllers/
+        internal/               # Admin: /internal/orders
+        web/                    # User: /orders
+    delivery/                   # Delivery zones & charges
+      controllers/
+        internal/               # Admin: /internal/delivery-zones
+        web/                    # User: /delivery-zones
+    addresses/                  # User saved delivery addresses
+      controllers/
+        web/                    # User: /addresses
+    payment/                    # Payment processing (strategy pattern)
+      controllers/
+        internal/               # Admin: /internal/payments
+        web/                    # User: /payments
+      providers/                # COD provider (extensible for Stripe, bKash, etc.)
+    invoice/                    # Auto-generated invoices (INV-YYYYMMDD-NNNN)
+      controllers/
+        internal/               # Admin: /internal/invoices
+        web/                    # User: /invoices
+    order-timeline/             # Order tracking timeline
+      controllers/
+        web/                    # User: /orders/:id/timeline
+    coupons/                    # Promo codes & discounts
+      controllers/
+        internal/               # Admin: /internal/coupons
+        web/                    # User: /coupons/validate
+  app.module.ts
+  main.ts
 ```
 
 ## Key Features
 
 - **JWT Authentication** with role-based access control (Admin / User)
-- **Standardized API Response Envelope** — all responses wrapped in `{ statusCode, message, data, timestamp }`
-- **Global Exception Handling** — catches all exceptions with consistent error format
+- **Delivery Zones** — admin-configurable zones with charges and estimated delivery times
+- **Delivery Addresses** — save addresses during checkout, manage saved addresses
+- **Payment System** — Cash on Delivery with strategy pattern extensible for Stripe, SSLCommerce, bKash, Nagad
+- **Invoice System** — auto-generated invoices with sequential numbering (INV-YYYYMMDD-NNNN)
+- **Order Management** — status transitions (Pending → Confirmed → Processing → Out for Delivery → Delivered), cancellation with inventory restore
+- **Order Timeline** — tracking history for every status change
+- **Promo Codes / Coupons** — flat or percentage discounts, usage limits, per-user tracking, min order amount
+- **Grocery Categories** — hierarchical parent/child categories with slug-based identification
+- **Shopping Cart** — persistent cart with add/update/remove items and checkout
+- **Transactional Processing** — stock validation, inventory decrement, payment, invoice, and timeline creation within DB transactions
 - **Pagination** — configurable `page`, `limit`, `sortBy`, `sortOrder` on all list endpoints
 - **Search & Filtering** — full-text search and field-specific filters
-- **Shopping Cart** — persistent cart with add/update/remove items and checkout
-- **Transactional Order Processing** — stock validation, inventory decrement, and order creation within DB transactions
-- **HTTP Request Logging** — middleware logs method, URL, status, and duration
-- **Swagger Documentation** — interactive API docs with request/response schemas
+- **Standardized API Response Envelope** — `{ statusCode, message, data, timestamp }`
+- **Global Exception Handling** — consistent error format across all endpoints
+- **Swagger Documentation** — interactive API docs at `/api/docs`
+- **CI/CD** — GitHub Actions pipeline with zero-downtime blue-green deployment
 
 ---
 
@@ -91,6 +115,7 @@ cp .env.example .env
 Edit `.env` with your database credentials:
 
 ```env
+PORT=3000
 DB_HOST=localhost
 DB_PORT=5432
 DB_USER=grocery_user
@@ -98,7 +123,6 @@ DB_PASS=grocery_pass
 DB_NAME=grocery_db
 JWT_SECRET=supersecretkey_change_in_production
 JWT_EXPIRES_IN=7d
-PORT=3000
 ```
 
 ### Run Locally
@@ -118,6 +142,8 @@ The API will be available at `http://localhost:3000`.
 
 Swagger docs: **http://localhost:3000/api/docs**
 
+PgAdmin: **http://localhost:5050** (dev only)
+
 ---
 
 ## API Endpoints
@@ -129,34 +155,180 @@ Swagger docs: **http://localhost:3000/api/docs**
 | POST | `/auth/register` | - | Register a new user |
 | POST | `/auth/login` | - | Login and receive JWT token |
 
-### Internal (Admin)
+### Internal — Grocery Management (Admin)
 
-| Method | Endpoint | Auth | Description |
-|--------|----------|------|-------------|
-| POST | `/internal/grocery` | JWT (admin) | Add new grocery item |
-| GET | `/internal/grocery` | JWT (admin) | List all items (paginated, filterable) |
-| GET | `/internal/grocery/:id` | JWT (admin) | Get item by ID |
-| PATCH | `/internal/grocery/:id` | JWT (admin) | Update item details |
-| DELETE | `/internal/grocery/:id` | JWT (admin) | Remove item |
-| PATCH | `/internal/grocery/:id/inventory` | JWT (admin) | Update inventory quantity |
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/internal/grocery` | Add new grocery item |
+| GET | `/internal/grocery` | List all items (paginated, filterable) |
+| GET | `/internal/grocery/:id` | Get item by ID |
+| PATCH | `/internal/grocery/:id` | Update item details |
+| DELETE | `/internal/grocery/:id` | Remove item |
+| PATCH | `/internal/grocery/:id/inventory` | Update inventory quantity |
 
-### Web (User)
+### Internal — Categories (Admin)
 
-| Method | Endpoint | Auth | Description |
-|--------|----------|------|-------------|
-| GET | `/grocery` | JWT (user) | List available items (paginated, filterable) |
-| POST | `/orders` | JWT (user) | Create order directly with items |
-| GET | `/orders/my` | JWT (user) | Get own orders (paginated, filterable) |
-| GET | `/cart` | JWT (user) | Get current cart |
-| POST | `/cart/items` | JWT (user) | Add item to cart |
-| PATCH | `/cart/items/:id` | JWT (user) | Update cart item quantity |
-| DELETE | `/cart/items/:id` | JWT (user) | Remove item from cart |
-| DELETE | `/cart` | JWT (user) | Clear entire cart |
-| POST | `/cart/checkout` | JWT (user) | Checkout cart into an order |
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/internal/categories` | Create a new category |
+| GET | `/internal/categories` | List all categories (including inactive) |
+| GET | `/internal/categories/:id` | Get category by ID |
+| PATCH | `/internal/categories/:id` | Update a category |
+| DELETE | `/internal/categories/:id` | Remove a category |
 
-### Pagination & Filtering
+### Internal — Delivery Zones (Admin)
 
-All list endpoints support these query parameters:
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/internal/delivery-zones` | Create a delivery zone |
+| GET | `/internal/delivery-zones` | List all delivery zones |
+| GET | `/internal/delivery-zones/:id` | Get delivery zone by ID |
+| PATCH | `/internal/delivery-zones/:id` | Update a delivery zone |
+| DELETE | `/internal/delivery-zones/:id` | Delete a delivery zone |
+
+### Internal — Orders (Admin)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/internal/orders` | List all orders (paginated, filterable) |
+| GET | `/internal/orders/:id` | Get order details |
+| PATCH | `/internal/orders/:id/status` | Update order status |
+
+### Internal — Payments (Admin)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/internal/payments` | List all payments |
+| GET | `/internal/payments/:id` | Get payment details |
+| PATCH | `/internal/payments/:id/status` | Update payment status |
+| POST | `/internal/payments/:id/refund` | Initiate a refund |
+
+### Internal — Invoices (Admin)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/internal/invoices` | List all invoices |
+| GET | `/internal/invoices/:id` | Get invoice details |
+
+### Internal — Coupons (Admin)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/internal/coupons` | Create a coupon |
+| GET | `/internal/coupons` | List all coupons |
+| GET | `/internal/coupons/:id` | Get coupon by ID |
+| PATCH | `/internal/coupons/:id` | Update a coupon |
+| DELETE | `/internal/coupons/:id` | Delete a coupon |
+
+### Web — Grocery (User)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/grocery` | List available grocery items (paginated, filterable) |
+
+### Web — Categories (User)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/categories` | List active categories (nested tree) |
+
+### Web — Delivery Zones (User)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/delivery-zones` | List active delivery zones |
+
+### Web — Addresses (User)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/addresses` | List saved addresses |
+| GET | `/addresses/:id` | Get a saved address |
+| PATCH | `/addresses/:id` | Update a saved address |
+| DELETE | `/addresses/:id` | Delete a saved address |
+
+### Web — Cart (User)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/cart` | Get current cart |
+| POST | `/cart/items` | Add item to cart |
+| PATCH | `/cart/items/:id` | Update cart item quantity |
+| DELETE | `/cart/items/:id` | Remove item from cart |
+| DELETE | `/cart` | Clear entire cart |
+| POST | `/cart/checkout` | Checkout cart into an order |
+
+### Web — Orders (User)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/orders` | Create order directly with items |
+| GET | `/orders/my` | Get own orders (paginated, filterable) |
+| GET | `/orders/:orderId/timeline` | Get order tracking timeline |
+
+### Web — Payments (User)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/payments/order/:orderId` | Get payment for a specific order |
+| GET | `/payments/my` | Get payment history |
+
+### Web — Invoices (User)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/invoices/order/:orderId` | Get invoice for a specific order |
+| GET | `/invoices/my` | Get my invoices |
+
+### Web — Coupons (User)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/coupons/validate` | Validate a coupon code and preview discount |
+
+---
+
+## Order Status Flow
+
+```
+PENDING → CONFIRMED → PROCESSING → OUT_FOR_DELIVERY → DELIVERED
+   ↓          ↓           ↓
+CANCELLED  CANCELLED   CANCELLED
+```
+
+- On **DELIVERED** (COD): payment auto-marked as completed, invoice paid amount updated
+- On **CANCELLED**: inventory automatically restored
+
+---
+
+## Checkout Flow
+
+Both `/orders` (direct) and `/cart/checkout` support the same options:
+
+```json
+{
+  "items": [{ "groceryItemId": "uuid", "quantity": 2 }],
+  "deliveryZoneId": "uuid",
+  "deliveryAddressId": "uuid",
+  "deliveryAddress": { "street": "...", "city": "...", "state": "...", "postalCode": "...", "country": "..." },
+  "saveAddress": true,
+  "addressLabel": "Home",
+  "paymentMethod": "cash_on_delivery",
+  "couponCode": "SAVE10",
+  "notes": "Leave at the door"
+}
+```
+
+- Provide either `deliveryAddressId` (saved address) or `deliveryAddress` (inline)
+- Set `saveAddress: true` to save the inline address for future use
+- `couponCode` validates and applies discount within the transaction
+- Creates: Order + OrderItems + Payment + Invoice + Timeline entry (all transactional)
+
+---
+
+## Pagination & Filtering
+
+All list endpoints support:
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
@@ -166,25 +338,17 @@ All list endpoints support these query parameters:
 | `sortOrder` | ASC/DESC | DESC | Sort direction |
 | `search` | string | - | Search keyword |
 
-**Grocery-specific filters:**
+**Grocery filters:** `minPrice`, `maxPrice`, `isAvailable`, `categoryId`
 
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `minPrice` | number | Minimum price |
-| `maxPrice` | number | Maximum price |
-| `isAvailable` | boolean | Filter by availability |
+**Order filters:** `status`, `fromDate`, `toDate`
 
-**Order-specific filters:**
+**Invoice filters:** `paymentMethod`, `fromDate`, `toDate`
 
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `status` | enum | `pending`, `confirmed`, `cancelled` |
-| `fromDate` | ISO date | Orders created after this date |
-| `toDate` | ISO date | Orders created before this date |
+**Payment filters:** `status`, `paymentMethod`
 
-### Response Format
+---
 
-All responses follow a standardized envelope:
+## Response Format
 
 **Success:**
 ```json
@@ -192,7 +356,7 @@ All responses follow a standardized envelope:
   "statusCode": 200,
   "message": "Grocery items retrieved successfully",
   "data": {
-    "items": [...],
+    "items": [],
     "meta": {
       "page": 1,
       "limit": 10,
@@ -202,7 +366,7 @@ All responses follow a standardized envelope:
       "hasPreviousPage": false
     }
   },
-  "timestamp": "2026-04-10T12:00:00.000Z"
+  "timestamp": "2026-04-12T12:00:00.000Z"
 }
 ```
 
@@ -212,83 +376,8 @@ All responses follow a standardized envelope:
   "statusCode": 400,
   "message": ["name should not be empty", "price must be a number"],
   "data": null,
-  "timestamp": "2026-04-10T12:00:00.000Z"
+  "timestamp": "2026-04-12T12:00:00.000Z"
 }
-```
-
----
-
-## Usage Examples
-
-### Register & Login
-
-```bash
-# Register as admin
-curl -X POST http://localhost:3000/auth/register \
-  -H "Content-Type: application/json" \
-  -d '{"name":"Admin User","email":"admin@test.com","password":"admin123","role":"admin"}'
-
-# Register as user
-curl -X POST http://localhost:3000/auth/register \
-  -H "Content-Type: application/json" \
-  -d '{"name":"John Doe","email":"john@test.com","password":"user123"}'
-
-# Login (returns JWT token)
-curl -X POST http://localhost:3000/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"email":"admin@test.com","password":"admin123"}'
-```
-
-### Manage Grocery Items (Admin)
-
-```bash
-# Add item
-curl -X POST http://localhost:3000/internal/grocery \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer <ADMIN_TOKEN>" \
-  -d '{"name":"Organic Bananas","description":"Fresh organic bananas","price":2.99,"quantity":100}'
-
-# Search with filters
-curl "http://localhost:3000/internal/grocery?search=banana&minPrice=1&maxPrice=5&page=1&limit=10" \
-  -H "Authorization: Bearer <ADMIN_TOKEN>"
-
-# Update inventory
-curl -X PATCH http://localhost:3000/internal/grocery/<ITEM_ID>/inventory \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer <ADMIN_TOKEN>" \
-  -d '{"quantity":200}'
-```
-
-### Shopping Cart Flow (User)
-
-```bash
-# Add item to cart
-curl -X POST http://localhost:3000/cart/items \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer <USER_TOKEN>" \
-  -d '{"groceryItemId":"<ITEM_UUID>","quantity":3}'
-
-# View cart
-curl http://localhost:3000/cart \
-  -H "Authorization: Bearer <USER_TOKEN>"
-
-# Update quantity
-curl -X PATCH http://localhost:3000/cart/items/<CART_ITEM_ID> \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer <USER_TOKEN>" \
-  -d '{"quantity":5}'
-
-# Checkout (creates order, clears cart)
-curl -X POST http://localhost:3000/cart/checkout \
-  -H "Authorization: Bearer <USER_TOKEN>"
-```
-
-### View Orders (User)
-
-```bash
-# Get orders with filters
-curl "http://localhost:3000/orders/my?status=pending&sortBy=totalAmount&sortOrder=DESC&page=1&limit=5" \
-  -H "Authorization: Bearer <USER_TOKEN>"
 ```
 
 ---
@@ -303,8 +392,18 @@ curl "http://localhost:3000/orders/my?status=pending&sortBy=totalAmount&sortOrde
 | email | VARCHAR | Unique |
 | password | VARCHAR | Bcrypt hashed, excluded from queries |
 | role | ENUM | `admin` \| `user` (default: `user`) |
-| createdAt | TIMESTAMP | Auto-generated |
-| updatedAt | TIMESTAMP | Auto-updated |
+
+### categories
+| Column | Type | Notes |
+|--------|------|-------|
+| id | UUID | Primary key |
+| name | VARCHAR | |
+| description | TEXT | Nullable |
+| imageUrl | VARCHAR | Nullable |
+| slug | VARCHAR | Unique |
+| parentId | UUID | FK → categories (self-referencing, nullable) |
+| isActive | BOOLEAN | Default: true |
+| sortOrder | INT | Default: 0 |
 
 ### grocery_items
 | Column | Type | Notes |
@@ -315,47 +414,187 @@ curl "http://localhost:3000/orders/my?status=pending&sortBy=totalAmount&sortOrde
 | price | DECIMAL(10,2) | |
 | quantity | INT | Inventory stock count |
 | imageUrl | VARCHAR | Nullable |
+| categoryId | UUID | FK → categories (nullable) |
 | isAvailable | BOOLEAN | Auto-set based on quantity > 0 |
-| createdAt | TIMESTAMP | |
-| updatedAt | TIMESTAMP | |
+
+### delivery_zones
+| Column | Type | Notes |
+|--------|------|-------|
+| id | UUID | Primary key |
+| name | VARCHAR | |
+| charge | DECIMAL(10,2) | Delivery fee |
+| estimatedMinutes | INT | Nullable |
+| isActive | BOOLEAN | Default: true |
+
+### user_addresses
+| Column | Type | Notes |
+|--------|------|-------|
+| id | UUID | Primary key |
+| userId | UUID | FK → users |
+| label | VARCHAR | Nullable (e.g. "Home", "Office") |
+| street | VARCHAR | |
+| city | VARCHAR | |
+| state | VARCHAR | |
+| postalCode | VARCHAR | |
+| country | VARCHAR | |
+| isDefault | BOOLEAN | Default: false |
 
 ### orders
 | Column | Type | Notes |
 |--------|------|-------|
 | id | UUID | Primary key |
-| userId | UUID | FK -> users |
-| status | ENUM | `pending` \| `confirmed` \| `cancelled` |
-| totalAmount | DECIMAL(10,2) | Sum of order item subtotals |
-| createdAt | TIMESTAMP | |
-| updatedAt | TIMESTAMP | |
+| userId | UUID | FK → users |
+| status | ENUM | `pending` \| `confirmed` \| `processing` \| `out_for_delivery` \| `delivered` \| `cancelled` |
+| subtotalAmount | DECIMAL(10,2) | Sum of item subtotals |
+| deliveryCharge | DECIMAL(10,2) | From delivery zone |
+| discountAmount | DECIMAL(10,2) | Coupon discount (default: 0) |
+| couponCode | VARCHAR | Nullable |
+| totalAmount | DECIMAL(10,2) | subtotal + delivery - discount |
+| deliveryZoneName | VARCHAR | Snapshot |
+| deliveryStreet | VARCHAR | Snapshot |
+| deliveryCity | VARCHAR | Snapshot |
+| deliveryState | VARCHAR | Snapshot |
+| deliveryPostalCode | VARCHAR | Snapshot |
+| deliveryCountry | VARCHAR | Snapshot |
+| notes | VARCHAR | Nullable |
+| estimatedDeliveryTime | TIMESTAMP | Nullable |
 
 ### order_items
 | Column | Type | Notes |
 |--------|------|-------|
 | id | UUID | Primary key |
-| orderId | UUID | FK -> orders (CASCADE delete) |
-| groceryItemId | UUID | FK -> grocery_items |
+| orderId | UUID | FK → orders (CASCADE) |
+| groceryItemId | UUID | FK → grocery_items |
 | quantity | INT | |
 | priceAtOrder | DECIMAL(10,2) | Price snapshot at order time |
-| subtotal | DECIMAL(10,2) | priceAtOrder * quantity |
+| subtotal | DECIMAL(10,2) | priceAtOrder × quantity |
+
+### payments
+| Column | Type | Notes |
+|--------|------|-------|
+| id | UUID | Primary key |
+| orderId | UUID | FK → orders (OneToOne) |
+| userId | UUID | FK → users |
+| paymentMethod | ENUM | `cash_on_delivery` \| `stripe` \| `ssl_commerce` \| `bkash` \| `nagad` |
+| status | ENUM | `pending` \| `completed` \| `failed` \| `refunded` \| `partially_refunded` |
+| amount | DECIMAL(10,2) | |
+| transactionId | VARCHAR | Nullable |
+| refundedAmount | DECIMAL(10,2) | Default: 0 |
+| metadata | JSONB | Nullable |
+| paidAt | TIMESTAMP | Nullable |
+
+### refunds
+| Column | Type | Notes |
+|--------|------|-------|
+| id | UUID | Primary key |
+| paymentId | UUID | FK → payments |
+| amount | DECIMAL(10,2) | |
+| reason | VARCHAR | |
+| status | ENUM | `pending` \| `completed` \| `failed` |
+| refundTransactionId | VARCHAR | Nullable |
+
+### invoices
+| Column | Type | Notes |
+|--------|------|-------|
+| id | UUID | Primary key |
+| invoiceNumber | VARCHAR | Unique (INV-YYYYMMDD-NNNN) |
+| orderId | UUID | FK → orders (OneToOne) |
+| userId | UUID | FK → users |
+| subtotalAmount | DECIMAL(10,2) | |
+| deliveryCharge | DECIMAL(10,2) | |
+| discountAmount | DECIMAL(10,2) | Default: 0 |
+| totalAmount | DECIMAL(10,2) | |
+| paidAmount | DECIMAL(10,2) | Default: 0 |
+| paymentMethod | ENUM | Same as payments |
+| issuedDate | DATE | |
+
+### order_timeline
+| Column | Type | Notes |
+|--------|------|-------|
+| id | UUID | Primary key |
+| orderId | UUID | FK → orders |
+| status | ENUM | Order status at this point |
+| note | VARCHAR | Nullable |
+| changedBy | UUID | Nullable (userId) |
+| createdAt | TIMESTAMP | |
+
+### coupons
+| Column | Type | Notes |
+|--------|------|-------|
+| id | UUID | Primary key |
+| code | VARCHAR | Unique, uppercase |
+| discountType | ENUM | `flat` \| `percentage` |
+| discountValue | DECIMAL(10,2) | |
+| minOrderAmount | DECIMAL(10,2) | Nullable |
+| maxDiscountAmount | DECIMAL(10,2) | Nullable (caps percentage discounts) |
+| usageLimit | INT | Nullable |
+| usedCount | INT | Default: 0 |
+| validFrom | DATE | |
+| validTo | DATE | |
+| isActive | BOOLEAN | Default: true |
+
+### coupon_usages
+| Column | Type | Notes |
+|--------|------|-------|
+| id | UUID | Primary key |
+| couponId | UUID | FK → coupons |
+| userId | UUID | |
+| orderId | UUID | |
+| discountApplied | DECIMAL(10,2) | |
 
 ### carts
 | Column | Type | Notes |
 |--------|------|-------|
 | id | UUID | Primary key |
-| userId | UUID | FK -> users (OneToOne) |
-| createdAt | TIMESTAMP | |
-| updatedAt | TIMESTAMP | |
+| userId | UUID | FK → users (OneToOne) |
 
 ### cart_items
 | Column | Type | Notes |
 |--------|------|-------|
 | id | UUID | Primary key |
-| cartId | UUID | FK -> carts (CASCADE delete) |
-| groceryItemId | UUID | FK -> grocery_items |
+| cartId | UUID | FK → carts (CASCADE) |
+| groceryItemId | UUID | FK → grocery_items |
 | quantity | INT | |
 
 > **Note:** `synchronize: true` is enabled for development. Use TypeORM migrations for production deployments.
+
+---
+
+## Deployment
+
+### CI/CD Pipeline
+
+The project uses **GitHub Actions** with zero-downtime blue-green deployment:
+
+1. Push to `staging` → triggers pipeline
+2. Build Docker image → push to Docker Hub
+3. Generate production `.env` via `envsubst` from GitHub Secrets
+4. SCP files (compose, env, nginx config) to VPS
+5. Start new container on alternate port (3000 ↔ 3010)
+6. Health check `/api/docs` → swap Nginx upstream → stop old container
+
+### Required GitHub Secrets
+
+| Secret | Description |
+|--------|-------------|
+| `DOCKER_HUB_USER` | Docker Hub username |
+| `DOCKER_HUB_PASSWORD` | Docker Hub password/token |
+| `HOST` | VPS IP/hostname |
+| `USER` | SSH username |
+| `SSH_KEY` | Private SSH key |
+| `APP_DOMAIN` | API domain (e.g. api.yourdomain.com) |
+| `DB_USER` | Production DB username |
+| `DB_PASS` | Production DB password |
+| `DB_NAME` | Production DB name |
+| `JWT_SECRET` | Production JWT secret |
+
+### VPS Setup (One-Time)
+
+1. Install Docker + Docker Compose v2
+2. Install Nginx
+3. `mkdir -p ~/deploy/grocery-booking-system`
+
+The pipeline handles everything else automatically on first deploy.
 
 ---
 
