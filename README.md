@@ -143,9 +143,8 @@ The project uses **GitHub Actions** with zero-downtime blue-green deployment:
 
 1. Install Docker + Docker Compose v2
 2. Install Nginx
-3. `mkdir -p ~/deploy/grocery-booking-system`
 
-The pipeline handles everything else automatically on first deploy.
+The pipeline handles everything else automatically on first deploy (directory creation, nginx config, postgres startup).
 
 ---
 
